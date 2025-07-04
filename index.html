@@ -36,18 +36,6 @@
         .content-container { padding: 1.5rem; }
         .settings-field { max-width: 400px; margin-bottom: 1.5rem; }
         .slider-container { display: flex; align-items: center; gap: 1rem; }
-
-        /* Fullscreen styles */
-        .fullscreen-button { position: absolute; top: 10px; right: 10px; z-index: 10; }
-        body.has-fullscreen { overflow: hidden; }
-        body.has-fullscreen .page-nav { display: none; }
-        body.has-fullscreen #appContainer { padding: 0; gap: 0; }
-        body.has-fullscreen .chart-wrapper:not(.fullscreen-active) { display: none; }
-        .chart-wrapper.fullscreen-active {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 1000; background-color: var(--dark-bg-1);
-            margin: 0; border-radius: 0;
-        }
     </style>
 </head>
 <body>
@@ -56,22 +44,19 @@
     <div id="mainPage" class="page">
         <nav class="navbar page-nav" role="navigation">
             <div class="navbar-brand">
-                <a class="navbar-item has-text-weight-bold">Cycle Screener</a>
+                <div id="currentPhaseStatus" class="navbar-item has-text-weight-bold"></div>
                 <a role="button" class="navbar-burger" data-target="navbarBasicMenu"><span></span><span></span><span></span></a>
             </div>
             <div id="navbarBasicMenu" class="navbar-menu">
                 <div class="navbar-start">
-                    <div class="navbar-item"><div class="field is-grouped"><p class="control is-expanded"><input class="input" type="text" id="tickerInput" value="URTH.US"></p><p class="control"><button id="fetchButton" class="button is-info">Fetch</button></p></div></div>
+                    <div class="navbar-item"><div class="field is-grouped"><p class="control is-expanded"><input class="input" type="text" id="tickerInput" value="MSFT.US"></p><p class="control"><button id="fetchButton" class="button is-info">Fetch</button></p></div></div>
                     <a class="navbar-item" id="goToSettingsButton">Settings</a>
                 </div>
             </div>
         </nav>
         <main class="page-content">
             <div id="appContainer">
-                <div id="priceChartWrapper" class="chart-wrapper">
-                    <canvas id="priceChart"></canvas>
-                    <button id="fullscreenBtn" class="button is-small fullscreen-button">Fullscreen</button>
-                </div>
+                <div id="priceChartWrapper" class="chart-wrapper"><canvas id="priceChart"></canvas></div>
                 <div id="macdChartWrapper" class="chart-wrapper"><canvas id="macdChart"></canvas></div>
                 <div id="economicChartWrapper" class="chart-wrapper"><canvas id="economicChart"></canvas></div>
                 <div id="economicMACDChartWrapper" class="chart-wrapper"><canvas id="economicMACDChart"></canvas></div>
@@ -97,7 +82,6 @@
             const SETTINGS_KEY = 'stockcycle_settings';
             const PHASES = { DOWNTREND: 'DOWNTREND', NEW_UPTREND: 'NEW_UPTREND', LATE_UPTREND: 'LATE_UPTREND', PRE_DOWNTREND: 'PRE_DOWNTREND' };
             let allDates = [], allPrices = [];
-            let currentSlicedData = null; // Cache for redrawing
             
             // --- SECTION 2: DOM ELEMENT REFERENCES ---
             let mainPage, settingsPage, goToSettingsButton,
@@ -107,7 +91,7 @@
                 statusMessage, deleteDataButton, 
                 fastEmaInput, slowEmaInput, sma1Input, sma2Input,
                 newUptrendColorInput, lateUptrendColorInput, preDowntrendColorInput, downtrendColorInput,
-                preDowntrendHistogramsInput, preDowntrendHistogramsValue, fullscreenBtn, priceChartWrapper;
+                preDowntrendHistogramsInput, preDowntrendHistogramsValue, currentPhaseStatus;
 
             // --- SECTION 3: PRIMARY EVENT LISTENER ---
             document.addEventListener('DOMContentLoaded', () => {
@@ -125,8 +109,7 @@
                 economicMACDChart = document.getElementById('economicMACDChart');
                 economicMACDCtx = economicMACDChart.getContext('2d');
                 statusMessage = document.getElementById('statusMessage');
-                fullscreenBtn = document.getElementById('fullscreenBtn');
-                priceChartWrapper = document.getElementById('priceChartWrapper');
+                currentPhaseStatus = document.getElementById('currentPhaseStatus');
 
                 const showPage = (pageId) => {
                     document.querySelectorAll('.page').forEach(p => { p.style.display = 'none'; });
@@ -145,8 +128,6 @@
                 fetchButton.addEventListener('click', fetchData);
                 tickerInput.addEventListener('keypress', e => { if (e.key === 'Enter') fetchData(); });
                 
-                fullscreenBtn.addEventListener('click', toggleFullscreen);
-
                 buildSettingsPage();
                 loadSettings();
                 
@@ -160,7 +141,21 @@
                 const container = document.getElementById('settingsContainer');
                 container.innerHTML = `
                     <h2 class="title is-4 has-text-light">Chart Display</h2>
-                    <div class="field settings-field"><label class="label" for="timePeriodSelector">Time Period</label><div class="control"><div class="select is-fullwidth"><select id="timePeriodSelector"><option value="all">All Time</option><option value="10yr">10 Years</option><option value="7yr">7 Years</option><option value="5yr">5 Years</option><option value="3yr">3 Years</option><option value="1yr">1 Year</option></select></div></div></div>
+                    <div class="field settings-field">
+                        <label class="label" for="timePeriodSelector">Time Period</label>
+                        <div class="control">
+                            <div class="select is-fullwidth">
+                                <select id="timePeriodSelector">
+                                    <option value="all">All Time</option>
+                                    <option value="10yr">10 Years</option>
+                                    <option value="7yr">7 Years</option>
+                                    <option value="5yr">5 Years</option>
+                                    <option value="3yr">3 Years</option>
+                                    <option value="1yr">1 Year</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                     <hr style="background-color: var(--dark-border);">
                     <h2 class="title is-4 has-text-light">Moving Average Periods (Weeks/Months)</h2>
                     <div class="field settings-field"><label class="label" for="fastEmaInput">Fast EMA Period</label><div class="control"><input class="input" type="number" id="fastEmaInput" step="1"></div></div>
@@ -169,7 +164,14 @@
                     <div class="field settings-field"><label class="label" for="sma2Input">SMA 2 Period</label><div class="control"><input class="input" type="number" id="sma2Input" step="1"></div></div>
                     <hr style="background-color: var(--dark-border);">
                     <h2 class="title is-4 has-text-light">Cycle Definition</h2>
-                    <div class="field settings-field"><label class="label" for="preDowntrendHistogramsInput">Pre-Downtrend Trigger</label><p class="help has-text-grey" style="margin-top:-1rem; margin-bottom: 1rem;">Activates when Job Openings MACD is red AND the stock's red histogram has worsened for a set number of weeks.</p><div class="slider-container"><input class="slider is-fullwidth is-info" type="range" id="preDowntrendHistogramsInput" min="1" max="10" step="1"><span id="preDowntrendHistogramsValue" class="tag is-info is-large">3</span></div></div>
+                    <div class="field settings-field">
+                        <label class="label" for="preDowntrendHistogramsInput">Pre-Downtrend Trigger</label>
+                        <p class="help has-text-grey" style="margin-top:-1rem; margin-bottom: 1rem;">Activates when Job Openings MACD is red AND the stock's red histogram has worsened for a set number of weeks.</p>
+                        <div class="slider-container">
+                            <input class="slider is-fullwidth is-info" type="range" id="preDowntrendHistogramsInput" min="1" max="10" step="1">
+                            <span id="preDowntrendHistogramsValue" class="tag is-info is-large">3</span>
+                        </div>
+                    </div>
                     <hr style="background-color: var(--dark-border);">
                     <h2 class="title is-4 has-text-light">Phase Colors</h2>
                     <div class="field settings-field"><label class="label" for="newUptrendColorInput">New Uptrend Color</label><div class="control"><input class="input" type="color" id="newUptrendColorInput"></div></div>
@@ -236,6 +238,7 @@
                 const ticker = tickerInput.value.trim().toUpperCase();
                 if (!ticker) { statusMessage.textContent = "Please enter a ticker symbol."; return; }
                 statusMessage.textContent = `Fetching data...`;
+                currentPhaseStatus.textContent = '';
                 clearCharts();
                 try {
                     const results = await Promise.allSettled([
@@ -344,6 +347,7 @@
                 }
                 
                 const stockFullPhases = determineCyclePhases(stockFull, preDowntrendHistograms, economicIndicators);
+                updateCurrentPhaseStatus(stockFullPhases, allDates);
                 
                 const startIndex = getFilterStartIndex();
                 const dates = allDates.slice(startIndex);
@@ -364,8 +368,6 @@
                     } : null
                 };
 
-                currentSlicedData = sliced; // Cache for redrawing
-
                 if (sliced.prices.length === 0) { clearCharts(); statusMessage.textContent = "No data for selected time period."; return; }
                 
                 drawPriceChart(dates, sliced, fastPeriod, slowPeriod, sma1Period, sma2Period);
@@ -374,30 +376,26 @@
                 drawEconomicMACDChart(dates, sliced.economic);
             }
 
-            function toggleFullscreen() {
-                const isActive = priceChartWrapper.classList.toggle('fullscreen-active');
-                document.body.classList.toggle('has-fullscreen');
-                fullscreenBtn.textContent = isActive ? 'Exit Fullscreen' : 'Fullscreen';
-                
-                // Redraw all charts to adjust to new dimensions
-                setTimeout(() => {
-                    const {economic, ...stockData} = currentSlicedData;
-                    const fast = parseInt(fastEmaInput.value);
-                    const slow = parseInt(slowEmaInput.value);
-                    const sma1 = parseInt(sma1Input.value);
-                    const sma2 = parseInt(sma2Input.value);
-                    const dates = allDates.slice(getFilterStartIndex());
-
-                    drawPriceChart(dates, stockData, fast, slow, sma1, sma2);
-                    if(!isActive) {
-                        drawMacdChart(dates, stockData);
-                        drawEconomicValueChart(dates, economic, fast, slow);
-                        drawEconomicMACDChart(dates, economic);
+            // --- SECTION 6: CALCULATION & CHARTING ---
+            function updateCurrentPhaseStatus(phases, dates) {
+                if (!phases || phases.length === 0) {
+                    currentPhaseStatus.textContent = '';
+                    return;
+                }
+                const currentPhase = phases[phases.length - 1];
+                let phaseStartDate = dates[dates.length - 1];
+                for (let i = dates.length - 2; i >= 0; i--) {
+                    if (phases[i] !== currentPhase) {
+                        phaseStartDate = dates[i + 1];
+                        break;
                     }
-                }, 50); // Small delay to allow CSS transition
+                    if (i === 0) { phaseStartDate = dates[0]; }
+                }
+
+                const formattedPhaseName = currentPhase.replace(/_/g, ' ').replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+                currentPhaseStatus.textContent = `${formattedPhaseName} (since ${phaseStartDate})`;
             }
 
-            // --- SECTION 6: CALCULATION & CHARTING ---
             function alignEconomicData(priceDates, economicData) {
                 if (!economicData || economicData.length === 0) return null;
                 let economicIndex = 0;
@@ -507,11 +505,6 @@
                 for(let i=0;i<d.length;i+=xTS){priceCtx.textAlign='center';priceCtx.fillText(d[i],mX(i),h-m.b+20);} 
                 drawLine(priceCtx,prices,mX,mY,'#a0a0a0',1.5);drawLine(priceCtx,fastEma,mX,mY,'#3273dc');drawLine(priceCtx,slowEma,mX,mY,'#23d160');drawLine(priceCtx,sma1,mX,mY,'#ff9800');drawLine(priceCtx,sma2,mX,mY,'#c56bf0');
                 const legX=m.l+10,legY=m.t+10,lSp=18; priceCtx.font="14px sans-serif";priceCtx.textAlign='left'; 
-                priceCtx.fillStyle='#a0a0a0';priceCtx.fillText('Price',legX,legY); 
-                priceCtx.fillStyle='#3273dc';priceCtx.fillText(`Fast EMA (${fp})`,legX,legY+lSp); 
-                priceCtx.fillStyle='#23d160';priceCtx.fillText(`Slow EMA (${sp})`,legX,legY+lSp*2); 
-                priceCtx.fillStyle='#ff9800';priceCtx.fillText(`SMA 1 (${s1p})`,legX,legY+lSp*3); 
-                priceCtx.fillStyle='#c56bf0';priceCtx.fillText(`SMA 2 (${s2p})`,legX,legY+lSp*4);
                 const phaseLegX = w - m.r - 130;
                 priceCtx.fillStyle = newUptrendColorInput.value; priceCtx.fillRect(phaseLegX, legY, 10, 10);
                 priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('New Uptrend', phaseLegX + 15, legY + 9);
