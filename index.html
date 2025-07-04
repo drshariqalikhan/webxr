@@ -505,16 +505,16 @@
                 for(let i=0;i<d.length;i+=xTS){priceCtx.textAlign='center';priceCtx.fillText(d[i],mX(i),h-m.b+20);} 
                 drawLine(priceCtx,prices,mX,mY,'#a0a0a0',1.5);drawLine(priceCtx,fastEma,mX,mY,'#3273dc');drawLine(priceCtx,slowEma,mX,mY,'#23d160');drawLine(priceCtx,sma1,mX,mY,'#ff9800');drawLine(priceCtx,sma2,mX,mY,'#c56bf0');
                 const legX=m.l+10,legY=m.t+10,lSp=18; priceCtx.font="14px sans-serif";priceCtx.textAlign='left'; 
-                const phaseLegX = w - m.r - 130;
-                priceCtx.fillStyle = newUptrendColorInput.value; priceCtx.fillRect(phaseLegX, legY, 10, 10);
-                priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('New Uptrend', phaseLegX + 15, legY + 9);
-                priceCtx.fillStyle = lateUptrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp, 10, 10);
-                priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Late Uptrend', phaseLegX + 15, legY + lSp + 9);
-                priceCtx.fillStyle = preDowntrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp*2, 10, 10);
-                priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Pre-Downtrend', phaseLegX + 15, legY + lSp*2 + 9);
-                priceCtx.fillStyle = downtrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp*3, 10, 10);
-                priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Downtrend', phaseLegX + 15, legY + lSp*3 + 9);
-            }
+            //     const phaseLegX = w - m.r - 130;
+            //     priceCtx.fillStyle = newUptrendColorInput.value; priceCtx.fillRect(phaseLegX, legY, 10, 10);
+            //     priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('New Uptrend', phaseLegX + 15, legY + 9);
+            //     priceCtx.fillStyle = lateUptrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp, 10, 10);
+            //     priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Late Uptrend', phaseLegX + 15, legY + lSp + 9);
+            //     priceCtx.fillStyle = preDowntrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp*2, 10, 10);
+            //     priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Pre-Downtrend', phaseLegX + 15, legY + lSp*2 + 9);
+            //     priceCtx.fillStyle = downtrendColorInput.value; priceCtx.fillRect(phaseLegX, legY + lSp*3, 10, 10);
+            //     priceCtx.fillStyle = '#f0f0f0'; priceCtx.fillText('Downtrend', phaseLegX + 15, legY + lSp*3 + 9);
+            // }
             
             function drawMacdChart(d, sd) { 
                 const {macdLine,signalLine,histogram}=sd; 
