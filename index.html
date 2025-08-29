@@ -77,8 +77,9 @@
     <script>
         (function() {
             // --- SECTION 1: CONSTANTS AND STATE ---
-            const CORS_PROXY = "https://api.allorigins.win/raw?url=";
-            const LAST_TICKER_KEY = 'stockcycle_lastTicker';
+            // const CORS_PROXY = "https://api.allorigins.win/raw?url=";
+            const CORS_PROXY = "https://corsproxy.io/?";
+             const LAST_TICKER_KEY = 'stockcycle_lastTicker';
             const SETTINGS_KEY = 'stockcycle_settings';
             const PHASES = { DOWNTREND: 'DOWNTREND', NEW_UPTREND: 'NEW_UPTREND', LATE_UPTREND: 'LATE_UPTREND', PRE_DOWNTREND: 'PRE_DOWNTREND' };
             let allDates = [], allPrices = [];
