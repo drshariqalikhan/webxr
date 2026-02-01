@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Stock & Economic Cycle Screener</title>
+    
+    <meta name="theme-color" content="#1a1d21">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CycleScreener">
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+
+    <style>
+        :root { --dark-bg-1: #1a1d21; --dark-bg-2: #272a2e; --dark-border: #444; --light-text: #f0f0f0; --dim-text: #a0a0a0; }
+        html { background-color: var(--dark-bg-1); height: 100svh; }
+        body { background-color: var(--dark-bg-1); color: var(--light-text); display: flex; flex-direction: column; height: 100%; margin: 0; }
+        .navbar { background-color: var(--dark-bg-2); border-bottom: 1px solid var(--dark-border); }
+        .navbar-item, .navbar-link { color: var(--light-text); cursor: pointer; }
+        .navbar-burger span { background-color: var(--light-text); }
+        .input, .select select { background-color: var(--dark-bg-1); border-color: var(--dark-border); color: var(--light-text); }
+        input[type="color"] { min-height: 2.5em; padding: 0.25em; }
+        .label { color: var(--light-text); }
+        
+        .page { display: flex; flex-direction: column; height: 100%; width: 100%; }
+        #settingsPage { display: none; }
+        .page-nav { padding-top: env(safe-area-inset-top); flex-shrink: 0; }
+        .page-content { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: env(safe-area-inset-bottom); display: flex; flex-direction: column;}
+
+        #appContainer { display: flex; flex-direction: column; gap: 1rem; height: 100%; padding: 1rem; }
+        .chart-wrapper { background-color: var(--dark-bg-2); border-radius: 6px; flex: 1; position: relative; min-height: 200px; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        .content-container { padding: 1.5rem; }
+        .settings-field { max-width: 400px; margin-bottom: 1.5rem; }
+        .slider-container { display: flex; align-items: center; gap: 1rem; }
+    </style>
+</head>
+<body>
+
+    <!-- PAGE 1: MAIN PAGE -->
+    <div id="mainPage" class="page">
+        <nav class="navbar page-nav" role="navigation">
+            <div class="navbar-brand">
+                <div id="currentPhaseStatus" class="navbar-item has-text-weight-bold"></div>
+                <a role="button" class="navbar-burger" data-target="navbarBasicMenu"><span></span><span></span><span></span></a>
+            </div>
+            <div id="navbarBasicMenu" class="navbar-menu">
+                <div class="navbar-start">
+                    <div class="navbar-item"><div class="field is-grouped"><p class="control is-expanded"><input class="input" type="text" id="tickerInput" value="MSFT.US"></p><p class="control"><button id="fetchButton" class="button is-info">Fetch</button></p></div></div>
+                    <a class="navbar-item" id="goToSettingsButton">Settings</a>
+                </div>
+            </div>
+        </nav>
+        <main class="page-content">
+            <div id="appContainer">
+                <div id="priceChartWrapper" class="chart-wrapper"><canvas id="priceChart"></canvas></div>
+                <div id="macdChartWrapper" class="chart-wrapper"><canvas id="macdChart"></canvas></div>
+                <div id="economicChartWrapper" class="chart-wrapper"><canvas id="economicChart"></canvas></div>
+                <div id="economicMACDChartWrapper" class="chart-wrapper"><canvas id="economicMACDChart"></canvas></div>
+                <div id="statusMessage" class="has-text-centered" role="status"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- PAGE 2: SETTINGS PAGE -->
+    <div id="settingsPage" class="page">
+        <nav class="navbar page-nav">
+            <div class="navbar-brand"><a class="navbar-item back-button">< Back</a></div>
+            <div class="navbar-menu is-active"><div class="navbar-start"><div class="navbar-item has-text-weight-bold">Settings</div></div></div>
+        </nav>
+        <main class="page-content"><div class="content-container" id="settingsContainer"></div></main>
+    </div>
+    
+    <script>
+        (function() {
+            // --- SECTION 1: CONSTANTS AND PROXY FALLBACKS ---
+            const PROXIES = [
+                "https://api.allorigins.win/raw?url=",
+                "https://corsproxy.io/?",
+                "https://api.codetabs.com/v1/proxy?quest="
+            ];
+
+            const LAST_TICKER_KEY = 'stockcycle_lastTicker';
+            const SETTINGS_KEY = 'stockcycle_settings';
+            const PHASES = { DOWNTREND: 'DOWNTREND', NEW_UPTREND: 'NEW_UPTREND', LATE_UPTREND: 'LATE_UPTREND', PRE_DOWNTREND: 'PRE_DOWNTREND' };
+            let allDates = [], allPrices = [];
+            
+            // --- SECTION 2: DOM ELEMENT REFERENCES ---
+            let mainPage, settingsPage, goToSettingsButton,
+                tickerInput, fetchButton, timePeriodSelector,
+                priceCanvas, priceCtx, macdCanvas, macdCtx, 
+                economicChart, economicCtx, economicMACDChart, economicMACDCtx,
+                statusMessage, deleteDataButton, 
+                fastEmaInput, slowEmaInput, sma1Input, sma2Input,
+                newUptrendColorInput, lateUptrendColorInput, preDowntrendColorInput, downtrendColorInput,
+                preDowntrendHistogramsInput, preDowntrendHistogramsValue, currentPhaseStatus;
+
+            document.addEventListener('DOMContentLoaded', () => {
+                mainPage = document.getElementById('mainPage');
+                settingsPage = document.getElementById('settingsPage');
+                goToSettingsButton = document.getElementById('goToSettingsButton');
+                tickerInput = document.getElementById('tickerInput');
+                fetchButton = document.getElementById('fetchButton');
+                priceCanvas = document.getElementById('priceChart');
+                priceCtx = priceCanvas.getContext('2d');
+                macdCanvas = document.getElementById('macdChart');
+                macdCtx = macdCanvas.getContext('2d');
+                economicChart = document.getElementById('economicChart');
+                economicCtx = economicChart.getContext('2d');
+                economicMACDChart = document.getElementById('economicMACDChart');
+                economicMACDCtx = economicMACDChart.getContext('2d');
+                statusMessage = document.getElementById('statusMessage');
+                currentPhaseStatus = document.getElementById('currentPhaseStatus');
+
+                const showPage = (pageId) => {
+                    document.querySelectorAll('.page').forEach(p => { p.style.display = 'none'; });
+                    document.getElementById(pageId).style.display = 'flex';
+                };
+
+                goToSettingsButton.addEventListener('click', () => showPage('settingsPage'));
+                document.querySelectorAll('.back-button').forEach(btn => {
+                    btn.addEventListener('click', () => showPage('mainPage'));
+                });
+                
+                const burger = document.querySelector('.navbar-burger');
+                const menu = document.getElementById(burger.dataset.target);
+                burger.addEventListener('click', () => { burger.classList.toggle('is-active'); menu.classList.toggle('is-active'); });
+                
+                fetchButton.addEventListener('click', fetchData);
+                tickerInput.addEventListener('keypress', e => { if (e.key === 'Enter') fetchData(); });
+                
+                buildSettingsPage();
+                loadSettings();
+                
+                const lastTicker = localStorage.getItem(LAST_TICKER_KEY);
+                if (lastTicker) { tickerInput.value = lastTicker; }
+                fetchData();
+            });
+            
+            // --- SECTION 3: PROXY HANDLING LOGIC ---
+            async function fetchWithFallback(targetUrl) {
+                let lastError = null;
+                for (const proxy of PROXIES) {
+                    try {
+                        const url = `${proxy}${encodeURIComponent(targetUrl)}`;
+                        const response = await fetch(url, { cache: 'no-cache' });
+                        if (response.ok) return await response.text();
+                    } catch (e) {
+                        lastError = e;
+                    }
+                }
+                throw lastError || new Error("All CORS proxies failed.");
+            }
+
+            // --- SECTION 4: DATA FETCHING ---
+            async function fetchData() {
+                const ticker = tickerInput.value.trim().toUpperCase();
+                if (!ticker) { statusMessage.textContent = "Please enter a ticker symbol."; return; }
+                statusMessage.textContent = `Fetching data...`;
+                currentPhaseStatus.textContent = '';
+                clearCharts();
+                try {
+                    const results = await Promise.allSettled([
+                        fetchPriceData(ticker),
+                        fetchEconomicData()
+                    ]);
+
+                    const priceResult = results[0];
+                    const economicResult = results[1];
+
+                    if (priceResult.status === 'rejected') throw priceResult.reason;
+                    
+                    const priceData = priceResult.value;
+                    let economicData = (economicResult.status === 'fulfilled') ? economicResult.value : null;
+
+                    allDates = priceData.dates;
+                    allPrices = priceData.prices;
+                    localStorage.setItem(LAST_TICKER_KEY, ticker);
+
+                    statusMessage.textContent = `Displaying ${ticker}.` + (economicData ? "" : " (Job Openings data failed)");
+                    processAndDraw(economicData);
+                } catch (error) { 
+                    statusMessage.textContent = `Error: ${error.message}`; 
+                }
+            }
+            
+            async function fetchPriceData(ticker) {
+                const stooqUrl = `https://stooq.com/q/d/l/?s=${ticker}&i=w&c=1`;
+                const rawData = await fetchWithFallback(stooqUrl);
+                if (rawData.trim().startsWith('<') || !rawData.toUpperCase().includes('DATE')) throw new Error('Invalid ticker.');
+                
+                const lines = rawData.trim().split('\n');
+                const headerLine = lines.shift(), delimiter = headerLine.includes(';') ? ';' : ',', headers = headerLine.split(delimiter).map(h => h.trim().toUpperCase());
+                const dateIndex = headers.indexOf('DATE'), closeIndex = headers.indexOf('CLOSE');
+                
+                const dates = [], prices = [];
+                lines.forEach(line => { 
+                    const cols = line.split(delimiter); 
+                    if (cols.length > Math.max(dateIndex, closeIndex)) { 
+                        const d = cols[dateIndex], p = parseFloat(cols[closeIndex]); 
+                        if (d && !isNaN(p)) { dates.push(d); prices.push(p); } 
+                    } 
+                });
+                return { dates, prices };
+            }
+
+            async function fetchEconomicData() {
+                const fredUrl = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=JTS1000OSL&fq=Monthly&fam=avg`;
+                const rawData = await fetchWithFallback(fredUrl);
+                const lines = rawData.trim().split('\n');
+                lines.shift(); // skip header
+                return lines.map(line => {
+                    const [date, value] = line.split(',');
+                    const numValue = parseFloat(value);
+                    return (date && !isNaN(numValue)) ? { date: date.trim(), value: numValue } : null;
+                }).filter(Boolean);
+            }
+
+            // --- SECTION 5: CALCULATIONS ---
+            function processAndDraw(economicData = null) {
+                if (!allPrices.length) return;
+                const fastP = parseInt(fastEmaInput.value, 10), slowP = parseInt(slowEmaInput.value, 10);
+                const sma1P = parseInt(sma1Input.value, 10), sma2P = parseInt(sma2Input.value, 10);
+                
+                const stockInd = { 
+                    fastEma: calculateEMA(allPrices, fastP), slowEma: calculateEMA(allPrices, slowP), 
+                    sma1: calculateSMA(allPrices, sma1P), sma2: calculateSMA(allPrices, sma2P), 
+                    ...calculateMACD(allPrices)
+                };
+
+                let ecoInd = null;
+                if (economicData) {
+                    const aligned = alignEconomicData(allDates, economicData);
+                    ecoInd = { values: aligned, fastEma: calculateEMA(aligned, fastP), slowEma: calculateEMA(aligned, slowP), ...calculateMACD(aligned) };
+                }
+                
+                const phases = determineCyclePhases(stockInd, parseInt(preDowntrendHistogramsInput.value, 10), ecoInd);
+                updateCurrentPhaseStatus(phases, allDates);
+                
+                const startIdx = getFilterStartIndex();
+                const dates = allDates.slice(startIdx);
+                const sliced = { 
+                    prices: allPrices.slice(startIdx), fastEma: stockInd.fastEma.slice(startIdx), slowEma: stockInd.slowEma.slice(startIdx),
+                    sma1: stockInd.sma1.slice(startIdx), sma2: stockInd.sma2.slice(startIdx), macdLine: stockInd.macdLine.slice(startIdx),
+                    signalLine: stockInd.signalLine.slice(startIdx), histogram: stockInd.histogram.slice(startIdx), phases: phases.slice(startIdx),
+                    economic: ecoInd ? { values: ecoInd.values.slice(startIdx), fastEma: ecoInd.fastEma.slice(startIdx), slowEma: ecoInd.slowEma.slice(startIdx), macdLine: ecoInd.macdLine.slice(startIdx), signalLine: ecoInd.signalLine.slice(startIdx), histogram: ecoInd.histogram.slice(startIdx) } : null
+                };
+
+                drawPriceChart(dates, sliced);
+                drawMacdChart(dates, sliced);
+                drawEconomicValueChart(dates, sliced.economic, fastP, slowP);
+                drawEconomicMACDChart(dates, sliced.economic);
+            }
+
+            function determineCyclePhases(stock, histCount, eco) {
+                const phases = new Array(stock.fastEma.length).fill(PHASES.DOWNTREND);
+                for (let i = 1; i < stock.fastEma.length; i++) {
+                    const fe = stock.fastEma[i], se = stock.slowEma[i], ml = stock.macdLine[i], sl = stock.signalLine[i];
+                    const prevP = phases[i - 1];
+                    if (fe === null || se === null) { phases[i] = prevP; continue; }
+                    if (fe < se) { phases[i] = PHASES.DOWNTREND; continue; }
+                    
+                    if (prevP === PHASES.DOWNTREND) phases[i] = PHASES.NEW_UPTREND;
+                    else if (prevP === PHASES.NEW_UPTREND) phases[i] = (stock.macdLine[i-1] > stock.signalLine[i-1] && ml <= sl) ? PHASES.LATE_UPTREND : PHASES.NEW_UPTREND;
+                    else if (prevP === PHASES.LATE_UPTREND) {
+                        let trigger = (i > histCount);
+                        for (let j = 0; j < histCount; j++) { if (stock.histogram[i-j] >= 0 || stock.histogram[i-j] >= stock.histogram[i-j-1]) trigger = false; }
+                        if (trigger && eco && eco.histogram[i] < 0) phases[i] = PHASES.PRE_DOWNTREND;
+                        else phases[i] = PHASES.LATE_UPTREND;
+                    } else phases[i] = PHASES.PRE_DOWNTREND;
+                }
+                return phases;
+            }
+
+            // --- SECTION 6: SETTINGS & UTILS ---
+            function buildSettingsPage() {
+                document.getElementById('settingsContainer').innerHTML = `
+                    <h2 class="title is-4 has-text-light">Chart Display</h2>
+                    <div class="field settings-field"><label class="label">Time Period</label><div class="select is-fullwidth"><select id="timePeriodSelector"><option value="all">All Time</option><option value="10yr">10 Years</option><option value="5yr">5 Years</option><option value="1yr">1 Year</option></select></div></div>
+                    <hr style="background-color: var(--dark-border);">
+                    <h2 class="title is-4 has-text-light">Moving Average Periods</h2>
+                    <div class="field settings-field"><label class="label">Fast EMA</label><input class="input" type="number" id="fastEmaInput"></div>
+                    <div class="field settings-field"><label class="label">Slow EMA</label><input class="input" type="number" id="slowEmaInput"></div>
+                    <div class="field settings-field"><label class="label">SMA 1</label><input class="input" type="number" id="sma1Input"></div>
+                    <div class="field settings-field"><label class="label">SMA 2</label><input class="input" type="number" id="sma2Input"></div>
+                    <hr style="background-color: var(--dark-border);">
+                    <h2 class="title is-4 has-text-light">Cycle Trigger</h2>
+                    <div class="field settings-field"><label class="label">Pre-Downtrend Count</label><div class="slider-container"><input class="slider is-fullwidth" type="range" id="preDowntrendHistogramsInput" min="1" max="10"><span id="preDowntrendHistogramsValue" class="tag is-info">3</span></div></div>
+                    <hr style="background-color: var(--dark-border);">
+                    <h2 class="title is-4 has-text-light">Phase Colors</h2>
+                    <div class="field settings-field"><label class="label">New Uptrend</label><input class="input" type="color" id="newUptrendColorInput"></div>
+                    <div class="field settings-field"><label class="label">Downtrend</label><input class="input" type="color" id="downtrendColorInput"></div>
+                    <button class="button is-danger" id="deleteDataButton">Clear Data</button>`;
+                
+                timePeriodSelector = document.getElementById('timePeriodSelector');
+                fastEmaInput = document.getElementById('fastEmaInput');
+                slowEmaInput = document.getElementById('slowEmaInput');
+                sma1Input = document.getElementById('sma1Input');
+                sma2Input = document.getElementById('sma2Input');
+                newUptrendColorInput = document.getElementById('newUptrendColorInput');
+                lateUptrendColorInput = { value: '#ffdd57' }; // Defaults
+                preDowntrendColorInput = { value: '#ff9800' };
+                downtrendColorInput = document.getElementById('downtrendColorInput');
+                preDowntrendHistogramsInput = document.getElementById('preDowntrendHistogramsInput');
+                preDowntrendHistogramsValue = document.getElementById('preDowntrendHistogramsValue');
+                deleteDataButton = document.getElementById('deleteDataButton');
+
+                [timePeriodSelector, fastEmaInput, slowEmaInput, sma1Input, sma2Input, newUptrendColorInput, downtrendColorInput, preDowntrendHistogramsInput].forEach(i => i.addEventListener('change', () => { saveSettings(); processAndDraw(); }));
+                preDowntrendHistogramsInput.addEventListener('input', () => { preDowntrendHistogramsValue.textContent = preDowntrendHistogramsInput.value; });
+                deleteDataButton.addEventListener('click', () => { localStorage.clear(); location.reload(); });
+            }
+
+            function saveSettings() { 
+                localStorage.setItem(SETTINGS_KEY, JSON.stringify({ timePeriod: timePeriodSelector.value, fastEma: fastEmaInput.value, slowEma: slowEmaInput.value, sma1: sma1Input.value, sma2: sma2Input.value, newUptrendColor: newUptrendColorInput.value, downtrendColor: downtrendColorInput.value, preDowntrendHistograms: preDowntrendHistogramsInput.value })); 
+            }
+            
+            function loadSettings() {
+                const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+                timePeriodSelector.value = s.timePeriod || '5yr';
+                fastEmaInput.value = s.fastEma || '10';
+                slowEmaInput.value = s.slowEma || '20';
+                sma1Input.value = s.sma1 || '50';
+                sma2Input.value = s.sma2 || '100';
+                newUptrendColorInput.value = s.newUptrendColor || '#04aa6d';
+                downtrendColorInput.value = s.downtrendColor || '#ff3860';
+                preDowntrendHistogramsInput.value = s.preDowntrendHistograms || '3';
+                preDowntrendHistogramsValue.textContent = preDowntrendHistogramsInput.value;
+            }
+
+            // --- SECTION 7: CHARTING ENGINE ---
+            function calculateSMA(d, p) { if (d.length < p) return new Array(d.length).fill(null); const s = new Array(d.length).fill(null); let sum = 0; for (let i=0; i<p; i++) sum+=d[i]; s[p-1]=sum/p; for (let i=p; i<d.length; i++) { sum=sum-d[i-p]+d[i]; s[i]=sum/p; } return s; }
+            function calculateEMA(d, p) { if (d.length < p) return new Array(d.length).fill(null); const k=2/(p+1), e=new Array(d.length).fill(null); let sum=0; for (let i=0; i<p; i++) sum+=d[i]; e[p-1]=sum/p; for (let i=p; i<d.length; i++) { if (e[i-1]!==null) e[i]=(d[i]*k)+(e[i-1]*(1-k)); } return e; }
+            function calculateMACD(d) { const e12=calculateEMA(d, 12), e26=calculateEMA(d, 26); const ml=e26.map((v,i)=>v!==null&&e12[i]!==null?e12[i]-v:null); const sl=calculateEMA(ml, 9); const h=sl.map((v,i)=>v!==null&&ml[i]!==null?ml[i]-v:null); return { macdLine:ml, signalLine:sl, histogram:h }; }
+            function alignEconomicData(dates, eco) { let idx = 0; return dates.map(d => { while (idx+1 < eco.length && eco[idx+1].date <= d) idx++; return eco[idx].date <= d ? eco[idx].value : null; }); }
+            function getFilterStartIndex() { const p = timePeriodSelector.value, tp = allDates.length, w = 52.17; if (p === '10yr') return Math.max(0, tp - Math.floor(10*w)); if (p === '5yr') return Math.max(0, tp - Math.floor(5*w)); if (p === '1yr') return Math.max(0, tp - Math.floor(w)); return 0; }
+            function clearCharts() { [priceCtx, macdCtx, economicCtx, economicMACDCtx].forEach(c => c && c.clearRect(0,0,10000,10000)); }
+            function updateCurrentPhaseStatus(p, d) { if (!p.length) return; const cur = p[p.length-1]; currentPhaseStatus.textContent = cur.replace(/_/g, ' ') + " (Current)"; }
+            const drawLine = (ctx, d, mX, mY, c, lw=1.5) => { ctx.beginPath(); ctx.lineWidth=lw; ctx.strokeStyle=c; let f=true; d.forEach((v,i)=>{if(v!==null){const x=mX(i),y=mY(v);if(f){ctx.moveTo(x,y);f=false;}else{ctx.lineTo(x,y);}}}); ctx.stroke(); };
+
+            function drawPriceChart(d, sd) { 
+                const {prices, fastEma, slowEma, sma1, sma2, phases}=sd; 
+                const cont=priceCanvas.parentElement, w=cont.clientWidth, h=cont.clientHeight;
+                priceCanvas.width=w*devicePixelRatio; priceCanvas.height=h*devicePixelRatio; priceCtx.scale(devicePixelRatio,devicePixelRatio);
+                let allV=[...prices, ...fastEma.filter(v=>v)]; const minY=Math.min(...allV), maxY=Math.max(...allV);
+                const m={t:10,r:40,b:30,l:40}, cW=w-m.l-m.r, cH=h-m.t-m.b;
+                const mX=(i)=>m.l+(i/(d.length-1))*cW, mY=(v)=>h-m.b-((v-minY)/(maxY-minY))*cH;
+                const colors = {[PHASES.NEW_UPTREND]: newUptrendColorInput.value+'22', [PHASES.LATE_UPTREND]: '#ffdd5722', [PHASES.PRE_DOWNTREND]: '#ff980022', [PHASES.DOWNTREND]: downtrendColorInput.value+'22'};
+                for (let i=0; i<phases.length; i++) { priceCtx.fillStyle=colors[phases[i]]; priceCtx.fillRect(mX(i)-(cW/d.length)/2, m.t, cW/d.length, cH); }
+                drawLine(priceCtx,prices,mX,mY,'#aaa'); drawLine(priceCtx,fastEma,mX,mY,'#3273dc'); drawLine(priceCtx,slowEma,mX,mY,'#23d160'); drawLine(priceCtx,sma1,mX,mY,'#ff9800'); drawLine(priceCtx,sma2,mX,mY,'#c56bf0');
+            }
+            
+            function drawMacdChart(d, sd) { 
+                const {macdLine, signalLine, histogram}=sd; const cont=macdCanvas.parentElement, w=cont.clientWidth, h=cont.clientHeight;
+                macdCanvas.width=w*devicePixelRatio; macdCanvas.height=h*devicePixelRatio; macdCtx.scale(devicePixelRatio,devicePixelRatio);
+                const allV=[...macdLine.filter(v=>v), ...histogram.filter(v=>v)]; if (!allV.length) return;
+                const minY=Math.min(...allV), maxY=Math.max(...allV);
+                const m={t:10,r:40,b:10,l:40}, cW=w-m.l-m.r, cH=h-m.t-m.b;
+                const mX=(i)=>m.l+(i/(d.length-1))*cW, mY=(v)=>h-m.b-((v-minY)/(maxY-minY))*cH;
+                const yZ=mY(0); macdCtx.strokeStyle='#555'; macdCtx.beginPath(); macdCtx.moveTo(m.l, yZ); macdCtx.lineTo(w-m.r, yZ); macdCtx.stroke();
+                histogram.forEach((v,i) => { if(v!==null){ macdCtx.fillStyle=v>0?'#23d160':'#ff3860'; macdCtx.fillRect(mX(i)-1, mY(v), 2, yZ-mY(v)); }});
+                drawLine(macdCtx,macdLine,mX,mY,'#007bff'); drawLine(macdCtx,signalLine,mX,mY,'#fd7e14');
+            }
+
+            function drawEconomicValueChart(d, ind, fp, sp) {
+                if (!ind) return; const cont=economicChart.parentElement, w=cont.clientWidth, h=cont.clientHeight;
+                economicChart.width=w*devicePixelRatio; economicChart.height=h*devicePixelRatio; economicCtx.scale(devicePixelRatio,devicePixelRatio);
+                const allV=[...ind.fastEma.filter(v=>v)]; const minY=Math.min(...allV), maxY=Math.max(...allV);
+                const m={t:10,r:40,b:30,l:40}, cW=w-m.l-m.r, cH=h-m.t-m.b;
+                const mX=(i)=>m.l+(i/(d.length-1))*cW, mY=(v)=>h-m.b-((v-minY)/(maxY-minY))*cH;
+                drawLine(economicCtx, ind.fastEma, mX, mY, '#3273dc'); drawLine(economicCtx, ind.slowEma, mX, mY, '#23d160');
+            }
+
+            function drawEconomicMACDChart(d, ind) {
+                if (!ind) return; const cont=economicMACDChart.parentElement, w=cont.clientWidth, h=cont.clientHeight;
+                economicMACDChart.width=w*devicePixelRatio; economicMACDChart.height=h*devicePixelRatio; economicMACDCtx.scale(devicePixelRatio,devicePixelRatio);
+                const allV=[...ind.macdLine.filter(v=>v), ...ind.histogram.filter(v=>v)];
+                const minY=Math.min(...allV), maxY=Math.max(...allV);
+                const m={t:10,r:40,b:10,l:40}, cW=w-m.l-m.r, cH=h-m.t-m.b;
+                const mX=(i)=>m.l+(i/(d.length-1))*cW, mY=(v)=>h-m.b-((v-minY)/(maxY-minY))*cH;
+                const yZ=mY(0);
+                ind.histogram.forEach((v,i) => { if(v!==null){ economicMACDCtx.fillStyle=v>0?'#23d160':'#ff3860'; economicMACDCtx.fillRect(mX(i)-1, mY(v), 2, yZ-mY(v)); }});
+                drawLine(economicMACDCtx, ind.macdLine, mX, mY, '#007bff'); drawLine(economicMACDCtx, ind.signalLine, mX, mY, '#fd7e14');
+            }
+        })();
+    </script>
+</body>
+</html>
