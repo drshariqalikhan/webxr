@@ -239,7 +239,7 @@
             async function fetchData() {
                 const ticker = tickerInput.value.trim().toUpperCase();
                 if (!ticker) { statusMessage.textContent = "Please enter a ticker symbol."; return; }
-                statusMessage.textContent = `Fetching data...`;
+                statusMessage.textContent = `Fetching data...`+CORS_PROXY;
                 currentPhaseStatus.textContent = '';
                 clearCharts();
                 try {
