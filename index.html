@@ -49,7 +49,7 @@
             </div>
             <div id="navbarBasicMenu" class="navbar-menu">
                 <div class="navbar-start">
-                    <div class="navbar-item"><div class="field is-grouped"><p class="control is-expanded"><input class="input" type="text" id="tickerInput" value="MSFT.US"></p><p class="control"><button id="fetchButton" class="button is-info">Fetch</button></p></div></div>
+                    <div class="navbar-item"><div class="field is-grouped"><p class="control is-expanded"><input class="input" type="text" id="tickerInput" value="VT.US"></p><p class="control"><button id="fetchButton" class="button is-info">Fetch</button></p></div></div>
                     <a class="navbar-item" id="goToSettingsButton">Settings</a>
                 </div>
             </div>
@@ -79,7 +79,7 @@
             // --- SECTION 1: CONSTANTS AND STATE ---
             //const CORS_PROXY = "https://api.allorigins.win/raw?url=";
             //const CORS_PROXY = "https://corsproxy.io/?";
-            const CORS_PROXY = ["https://corsproxy.io/?", "https://api.allorigins.win/raw?url=", "https://thingproxy.freeboard.io/fetch/"][Math.floor(Math.random() * 3)];
+            const CORS_PROXY = ["https://corsproxy.io/?", "https://api.allorigins.win/raw?url="][Math.floor(Math.random() * 2)];
              const LAST_TICKER_KEY = 'stockcycle_lastTicker';
             const SETTINGS_KEY = 'stockcycle_settings';
             const PHASES = { DOWNTREND: 'DOWNTREND', NEW_UPTREND: 'NEW_UPTREND', LATE_UPTREND: 'LATE_UPTREND', PRE_DOWNTREND: 'PRE_DOWNTREND' };
