@@ -7,219 +7,83 @@
     <title>CycleScreener PWA</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <style>
-        :root { --dark-bg: #1a1d21; --chart-bg: #272a2e; --text: #f0f0f0; --dim: #a0a0a0; }
-        body { background-color: var(--dark-bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-        .navbar { background-color: var(--chart-bg); }
-        .navbar-item, .navbar-link { color: var(--text); }
-        .title { color: var(--text); }
-        .subtitle { color: var(--dim); }
-        .section { padding: 1.5rem; flex-grow: 1; }
-        .chart-container { background-color: var(--chart-bg); border-radius: 6px; position: relative; height: 300px; width: 100%; margin-bottom: 1.5rem; }
+        body { background: #1a1d21; color: #f0f0f0; min-height: 100vh; }
+        .chart-container { position: relative; height: 400px; width: 100%; margin-bottom: 2rem; }
         canvas { width: 100%; height: 100%; }
-        .loader-wrapper { display: flex; justify-content: center; padding: 2rem; }
-        .loader { border: 4px solid #444; border-top: 4px solid #fff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; }
+        .loader { border: 4px solid #333; border-top: 4px solid #fff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 2rem auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        .settings-panel { background: var(--chart-bg); padding: 1rem; border-radius: 6px; margin-bottom: 1rem; display: none; }
-        .settings-panel.is-active { display: block; }
-        .input, .select select { background: var(--dark-bg); border-color: #444; color: var(--text); }
-        label { color: var(--dim); }
-        code { color: #f14668; background: transparent; }
     </style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="navbar-brand">
-            <a class="navbar-item has-text-weight-bold">📈 CycleScreener PWA</a>
-            <a role="button" class="navbar-burger" onclick="document.querySelector('.navbar-menu').classList.toggle('is-active')">
-                <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-            </a>
-        </div>
-        <div class="navbar-menu">
-            <div class="navbar-end">
-                <a class="navbar-item" onclick="toggleSettings()">Settings</a>
-                <a class="navbar-item" onclick="fetchData()">Refresh</a>
-            </div>
-        </div>
-    </nav>
-
     <section class="section">
         <div class="container">
-            <div id="error-notification" class="notification is-danger is-hidden"></div>
-
-            <div id="settings" class="settings-panel">
-                <h3 class="title is-5">Settings</h3>
-                <div class="columns is-mobile">
-                    <div class="column"><label class="label">Fast EMA</label><input class="input" type="number" id="fastEma" value="10"></div>
-                    <div class="column"><label class="label">Slow EMA</label><input class="input" type="number" id="slowEma" value="20"></div>
-                </div>
-                <div class="columns is-mobile">
-                     <div class="column"><label class="label">SMA 1</label><input class="input" type="number" id="sma1" value="50"></div>
-                     <div class="column"><label class="label">SMA 2</label><input class="input" type="number" id="sma2" value="100"></div>
-                </div>
-                <button class="button is-info is-fullwidth" onclick="recalculate()">Apply</button>
-            </div>
-
-            <div id="charts-area">
-                <div class="loader-wrapper"><div class="loader"></div></div>
+            <h1 class="title has-text-white">CycleScreener</h1>
+            <button id="refreshBtn" class="button is-info mb-4">Refresh Data</button>
+            <div id="status" class="has-text-grey">Ready</div>
+            
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
             </div>
         </div>
     </section>
 
     <script>
-        // --- CONFIGURATION ---
-        // REPLACE with your Render URL (e.g., https://myapp.onrender.com)
-        // Ensure NO trailing slash.
-        const BASE_URL = 'https://cycle-tb4a.onrender.com'; 
+        const API_URL = 'https://cycle-tb4a.onrender.com'; // UPDATE THIS
         
-        // --- STATE ---
-        let rawData = null;
-
-        // --- MATH UTILS ---
-        const calcSMA=(d,p)=>{if(!d||d.length<p)return Array(d.length).fill(null);const s=Array(d.length).fill(null);let sum=0;for(let i=0;i<p;i++)sum+=d[i];s[p-1]=sum/p;for(let i=p;i<d.length;i++){sum=sum-d[i-p]+d[i];s[i]=sum/p}return s};
-        const calcEMA=(d,p)=>{if(!d||d.length<p)return Array(d.length).fill(null);const k=2/(p+1),e=Array(d.length).fill(null);let sum=0;for(let i=0;i<p;i++)sum+=d[i];e[p-1]=sum/p;for(let i=p;i<d.length;i++){if(e[i-1]!==null)e[i]=(d[i]*k)+(e[i-1]*(1-k))}return e};
-        
-        // --- APP LOGIC ---
-        function toggleSettings() { document.getElementById('settings').classList.toggle('is-active'); }
-        
-        function showError(msg) {
-            const el = document.getElementById('error-notification');
-            el.innerHTML = msg; 
-            el.classList.remove('is-hidden');
-        }
-
-        async function fetchData() {
-            const chartsArea = document.getElementById('charts-area');
-            chartsArea.innerHTML = '<div class="loader-wrapper"><div class="loader"></div></div>';
-            document.getElementById('error-notification').classList.add('is-hidden');
-            
-            try {
-                // 1. Validation
-                if(BASE_URL.includes('YOUR_RENDER_URL')) {
-                    throw new Error("<b>Config Error:</b> Please edit index.html and replace 'YOUR_RENDER_URL_HERE' with your actual Render URL.");
-                }
-
-                const cleanBaseUrl = BASE_URL.replace(/\/+$/, ''); // Remove trailing slashes
-                const url = `${cleanBaseUrl}/api/data?ticker=VT.US&interval=w`;
-                console.log("Fetching from:", url);
-
-                const res = await fetch(url);
-                
-                // 2. Content-Type Check
-                const contentType = res.headers.get("content-type");
-                const isJson = contentType && contentType.includes("application/json");
-
-                if (!isJson) {
-                    // It's likely HTML (404 page or generic error page)
-                    const text = await res.text();
-                    console.error("Received HTML instead of JSON:", text.substring(0, 300));
-                    throw new Error(`<b>Connection Error:</b> The server returned HTML instead of JSON.<br><br><b>URL:</b> ${url}<br><b>Status:</b> ${res.status} ${res.statusText}<br><br>Check your Render logs. If you see a '404' there, your URL path is incorrect.`);
-                }
-
-                const json = await res.json();
-
-                if (!res.ok) {
-                    throw new Error(json.error || `Server Error: ${res.status}`);
-                }
-
-                rawData = json;
-                recalculate();
-                
-            } catch (e) {
-                chartsArea.innerHTML = '';
-                showError(e.message);
-            }
-        }
-
-        function recalculate() {
-            if(!rawData) return;
-            const fastP = parseInt(document.getElementById('fastEma').value);
-            const slowP = parseInt(document.getElementById('slowEma').value);
-            const sma1P = parseInt(document.getElementById('sma1').value);
-            const sma2P = parseInt(document.getElementById('sma2').value);
-
-            const prices = rawData.prices;
-            const dates = rawData.dates;
-            
-            const fastEma = calcEMA(prices, fastP);
-            const slowEma = calcEMA(prices, slowP);
-            const sma1 = calcSMA(prices, sma1P);
-            const sma2 = calcSMA(prices, sma2P);
-
-            const phases = fastEma.map((fe, i) => {
-                const se = slowEma[i];
-                if(fe===null || se===null) return null;
-                return fe < se ? 'DOWNTREND' : 'UPTREND';
-            });
-
-            renderCharts({ dates, prices, fastEma, slowEma, sma1, sma2, phases });
-        }
-
-        function createCanvas(id, title) {
-            return `
-                <h4 class="title is-6 mb-2">${title}</h4>
-                <div class="chart-container">
-                    <canvas id="${id}"></canvas>
-                </div>
-            `;
-        }
-
-        function renderCharts(data) {
-            const container = document.getElementById('charts-area');
-            container.innerHTML = createCanvas('priceChart', 'Price & Cycles');
-            setTimeout(() => { drawPriceChart('priceChart', data); }, 0);
-        }
-
-        function drawPriceChart(id, {dates, prices, fastEma, slowEma, sma1, sma2, phases}) {
-            const canvas = document.getElementById(id);
-            if(!canvas) return;
+        const drawChart = (dates, prices, phases) => {
+            const canvas = document.getElementById('mainChart');
             const ctx = canvas.getContext('2d');
             const rect = canvas.parentElement.getBoundingClientRect();
             canvas.width = rect.width;
             canvas.height = rect.height;
-
-            const validPrices = prices.filter(p => p !== null);
-            const min = Math.min(...validPrices);
-            const max = Math.max(...validPrices);
+            
+            const min = Math.min(...prices.filter(p=>p)), max = Math.max(...prices.filter(p=>p));
             const range = max - min;
+            const pad = 40;
+            const cW = canvas.width - pad*2;
+            const cH = canvas.height - pad*2;
             
-            const pad = {t: 20, b: 30, l: 0, r: 0};
-            const w = canvas.width;
-            const h = canvas.height;
-            const cH = h - pad.t - pad.b;
+            const getX = (i) => pad + (i / (dates.length - 1)) * cW;
+            const getY = (v) => canvas.height - pad - ((v - min) / range) * cH;
 
-            const getX = (i) => (i / (dates.length - 1)) * w;
-            const getY = (v) => h - pad.b - ((v - min) / range) * cH;
-
-            ctx.clearRect(0,0,w,h);
-
-            const barW = w / dates.length;
-            phases.forEach((p, i) => {
-                if(!p) return;
-                ctx.fillStyle = p === 'UPTREND' ? 'rgba(4, 170, 109, 0.2)' : 'rgba(255, 56, 96, 0.2)';
-                ctx.fillRect(getX(i) - barW/2, pad.t, barW, cH);
+            // Clear
+            ctx.clearRect(0,0,canvas.width, canvas.height);
+            
+            // Draw Line
+            ctx.beginPath();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            prices.forEach((p, i) => {
+                if(p === null) return;
+                const x = getX(i);
+                const y = getY(p);
+                if(i===0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
             });
-
-            const line = (data, color, width=1.5) => {
-                ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width;
-                let first = true;
-                data.forEach((v, i) => {
-                    if(v === null) return;
-                    const x = getX(i), y = getY(v);
-                    if(first) { ctx.moveTo(x,y); first=false; } else { ctx.lineTo(x,y); }
-                });
-                ctx.stroke();
-            };
-
-            line(sma2, '#f14668'); line(sma1, '#48c774'); line(slowEma, '#ffdd57'); line(fastEma, '#3273dc'); line(prices, '#f0f0f0', 2);
+            ctx.stroke();
             
-            ctx.fillStyle = '#a0a0a0'; ctx.textAlign = 'center'; ctx.font = '10px sans-serif';
-            const step = Math.floor(dates.length / 5);
-            for(let i=0; i<dates.length; i+=step) { ctx.fillText(dates[i], getX(i), h - 5); }
-        }
+            // Simple Phase Colors (Background bars could be added here similar to main app)
+        };
 
-        // Init
-        fetchData();
+        const loadData = async () => {
+            const status = document.getElementById('status');
+            status.innerHTML = '<div class="loader"></div>';
+            try {
+                const res = await fetch(API_URL);
+                const data = await res.json();
+                
+                if(data.error) throw new Error(data.error);
+                
+                drawChart(data.dates, data.prices, data.phases);
+                status.innerText = 'Updated: ' + new Date().toLocaleTimeString();
+            } catch (e) {
+                status.innerText = 'Error: ' + e.message;
+            }
+        };
+
+        document.getElementById('refreshBtn').addEventListener('click', loadData);
+        // Initial load
+        // loadData(); // Uncomment to load on start if API_URL is set
     </script>
 </body>
 </html>
