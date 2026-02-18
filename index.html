@@ -24,6 +24,7 @@
         .settings-panel.is-active { display: block; }
         .input, .select select { background: var(--dark-bg); border-color: #444; color: var(--text); }
         label { color: var(--dim); }
+        code { color: #f14668; background: transparent; }
     </style>
 </head>
 <body>
@@ -60,7 +61,6 @@
             </div>
 
             <div id="charts-area">
-                <!-- Charts will be injected here -->
                 <div class="loader-wrapper"><div class="loader"></div></div>
             </div>
         </div>
@@ -68,11 +68,12 @@
 
     <script>
         // --- CONFIGURATION ---
-        const API_URL = 'https://cycle-tb4a.onrender.com'; // REPLACE THIS WITH YOUR DEPLOYED BACKEND URL
+        // REPLACE with your Render URL (e.g., https://myapp.onrender.com)
+        // Ensure NO trailing slash.
+        const BASE_URL = 'YOUR_RENDER_URL_HERE'; 
         
         // --- STATE ---
         let rawData = null;
-        let chartInstances = {};
 
         // --- MATH UTILS ---
         const calcSMA=(d,p)=>{if(!d||d.length<p)return Array(d.length).fill(null);const s=Array(d.length).fill(null);let sum=0;for(let i=0;i<p;i++)sum+=d[i];s[p-1]=sum/p;for(let i=p;i<d.length;i++){sum=sum-d[i-p]+d[i];s[i]=sum/p}return s};
@@ -83,7 +84,7 @@
         
         function showError(msg) {
             const el = document.getElementById('error-notification');
-            el.textContent = msg;
+            el.innerHTML = msg; 
             el.classList.remove('is-hidden');
         }
 
@@ -93,23 +94,35 @@
             document.getElementById('error-notification').classList.add('is-hidden');
             
             try {
-                // IMPORTANT: Check if user replaced the URL
-                if(API_URL.includes('YOUR_RENDER_URL')) {
-                    throw new Error("You must configure the API_URL in the code to point to your backend.");
+                // 1. Validation
+                if(BASE_URL.includes('YOUR_RENDER_URL')) {
+                    throw new Error("<b>Config Error:</b> Please edit index.html and replace 'YOUR_RENDER_URL_HERE' with your actual Render URL.");
                 }
 
-                const res = await fetch(`${API_URL}?ticker=VT.US&interval=w`);
-                const text = await res.text();
+                const cleanBaseUrl = BASE_URL.replace(/\/+$/, ''); // Remove trailing slashes
+                const url = `${cleanBaseUrl}/api/data?ticker=VT.US&interval=w`;
+                console.log("Fetching from:", url);
+
+                const res = await fetch(url);
                 
-                try {
-                    rawData = JSON.parse(text);
-                } catch(e) {
-                    console.error("Non-JSON response:", text.substring(0, 200));
-                    throw new Error("Server returned an error (HTML instead of JSON). Check your backend logs.");
+                // 2. Content-Type Check
+                const contentType = res.headers.get("content-type");
+                const isJson = contentType && contentType.includes("application/json");
+
+                if (!isJson) {
+                    // It's likely HTML (404 page or generic error page)
+                    const text = await res.text();
+                    console.error("Received HTML instead of JSON:", text.substring(0, 300));
+                    throw new Error(`<b>Connection Error:</b> The server returned HTML instead of JSON.<br><br><b>URL:</b> ${url}<br><b>Status:</b> ${res.status} ${res.statusText}<br><br>Check your Render logs. If you see a '404' there, your URL path is incorrect.`);
                 }
 
-                if(rawData.error) throw new Error(rawData.error);
-                
+                const json = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(json.error || `Server Error: ${res.status}`);
+                }
+
+                rawData = json;
                 recalculate();
                 
             } catch (e) {
@@ -133,7 +146,6 @@
             const sma1 = calcSMA(prices, sma1P);
             const sma2 = calcSMA(prices, sma2P);
 
-            // phases calculation
             const phases = fastEma.map((fe, i) => {
                 const se = slowEma[i];
                 if(fe===null || se===null) return null;
@@ -155,10 +167,7 @@
         function renderCharts(data) {
             const container = document.getElementById('charts-area');
             container.innerHTML = createCanvas('priceChart', 'Price & Cycles');
-
-            setTimeout(() => {
-                drawPriceChart('priceChart', data);
-            }, 0);
+            setTimeout(() => { drawPriceChart('priceChart', data); }, 0);
         }
 
         function drawPriceChart(id, {dates, prices, fastEma, slowEma, sma1, sma2, phases}) {
@@ -184,7 +193,6 @@
 
             ctx.clearRect(0,0,w,h);
 
-            // Draw Phases
             const barW = w / dates.length;
             phases.forEach((p, i) => {
                 if(!p) return;
@@ -192,41 +200,25 @@
                 ctx.fillRect(getX(i) - barW/2, pad.t, barW, cH);
             });
 
-            // Helper to draw line
             const line = (data, color, width=1.5) => {
-                ctx.beginPath();
-                ctx.strokeStyle = color;
-                ctx.lineWidth = width;
+                ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = width;
                 let first = true;
                 data.forEach((v, i) => {
                     if(v === null) return;
-                    const x = getX(i);
-                    const y = getY(v);
-                    if(first) { ctx.moveTo(x,y); first=false; }
-                    else { ctx.lineTo(x,y); }
+                    const x = getX(i), y = getY(v);
+                    if(first) { ctx.moveTo(x,y); first=false; } else { ctx.lineTo(x,y); }
                 });
                 ctx.stroke();
             };
 
-            line(sma2, '#f14668');
-            line(sma1, '#48c774');
-            line(slowEma, '#ffdd57');
-            line(fastEma, '#3273dc');
-            line(prices, '#f0f0f0', 2);
+            line(sma2, '#f14668'); line(sma1, '#48c774'); line(slowEma, '#ffdd57'); line(fastEma, '#3273dc'); line(prices, '#f0f0f0', 2);
             
-            // Labels
-            ctx.fillStyle = '#a0a0a0';
-            ctx.textAlign = 'center';
-            ctx.font = '10px sans-serif';
-            // Draw a few dates
+            ctx.fillStyle = '#a0a0a0'; ctx.textAlign = 'center'; ctx.font = '10px sans-serif';
             const step = Math.floor(dates.length / 5);
-            for(let i=0; i<dates.length; i+=step) {
-                ctx.fillText(dates[i], getX(i), h - 5);
-            }
+            for(let i=0; i<dates.length; i+=step) { ctx.fillText(dates[i], getX(i), h - 5); }
         }
 
         // Init
-        // toggleSettings(); // optional
         fetchData();
     </script>
 </body>
