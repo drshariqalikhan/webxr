@@ -46,10 +46,8 @@
             const getX = (i) => pad + (i / (dates.length - 1)) * cW;
             const getY = (v) => canvas.height - pad - ((v - min) / range) * cH;
 
-            // Clear
             ctx.clearRect(0,0,canvas.width, canvas.height);
             
-            // Draw Line
             ctx.beginPath();
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 2;
@@ -61,8 +59,6 @@
                 else ctx.lineTo(x, y);
             });
             ctx.stroke();
-            
-            // Simple Phase Colors (Background bars could be added here similar to main app)
         };
 
         const loadData = async () => {
@@ -73,7 +69,8 @@
                 const data = await res.json();
                 
                 if(data.error) throw new Error(data.error);
-                
+                if(!data.prices || data.prices.length === 0) throw new Error("No price data returned. Server might be blocked by data provider.");
+
                 drawChart(data.dates, data.prices, data.phases);
                 status.innerText = 'Updated: ' + new Date().toLocaleTimeString();
             } catch (e) {
